@@ -1,86 +1,60 @@
-
-import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Configuration for the custom API
+const API_KEY = process.env.API_KEY;
+const BASE_URL = "https://www.chataiapi.com/v1";
+const MODEL_NAME = "gpt-4o"; // Using gpt-4o as it generally has best support for the OpenAI vision format
 
-const ingredientsSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    ingredients: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING, description: "Name of the ingredient" },
-          box_2d: {
-            type: Type.ARRAY,
-            items: { type: Type.NUMBER },
-            description: "Bounding box coordinates [ymin, xmin, ymax, xmax] normalized to 0-1.",
-          },
-        },
-        required: ["name", "box_2d"],
-      },
-      description: "List of ingredients with bounding boxes.",
-    },
-  },
-  required: ["ingredients"],
-};
+// Helper function to call the custom API
+async function callChatApi(messages: any[], responseSchemaDescription: string) {
+  if (!API_KEY) {
+    throw new Error("API_KEY environment variable is missing.");
+  }
 
-const recipeSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    title: {
-      type: Type.STRING,
-      description: "The creative name of the dish.",
-    },
-    description: {
-      type: Type.STRING,
-      description: "A short, engaging description of the dish.",
-    },
-    ingredientsDetected: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: "List of ingredients actually used in the recipe.",
-    },
-    steps: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-      description: "Step-by-step cooking instructions.",
-    },
-    cookingTime: {
-      type: Type.STRING,
-      description: "Estimated time to cook.",
-    },
-    difficulty: {
-      type: Type.STRING,
-      description: "Difficulty level.",
-    },
-    chefComment: {
-      type: Type.STRING,
-      description: "A specific comment from the chef or search summary.",
-    }
-  },
-  required: ["title", "description", "ingredientsDetected", "steps", "cookingTime", "difficulty", "chefComment"],
-};
+  const systemMessage = {
+    role: "system",
+    content: `You are an AI assistant capable of analyzing images and generating recipes.
+    IMPORTANT: You must reply in valid JSON format only. Do not wrap the JSON in markdown code blocks.
+    
+    The expected JSON structure is:
+    ${responseSchemaDescription}`
+  };
 
-const recipeListSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    recipes: {
-      type: Type.ARRAY,
-      items: recipeSchema,
-      description: "List of 6 distinct recipes.",
-    }
-  },
-  required: ["recipes"]
-};
+  const payload = {
+    model: MODEL_NAME,
+    messages: [systemMessage, ...messages],
+    response_format: { type: "json_object" },
+    max_tokens: 4000
+  };
 
-// Helper to clean base64 string
-const cleanBase64 = (str: string) => str.split(',')[1] || str;
+  const response = await fetch(`${BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${API_KEY}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("API Error Response:", errorText);
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices[0].message.content;
+
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    console.error("Failed to parse JSON response:", content);
+    throw new Error("Invalid JSON received from API");
+  }
+}
 
 export const identifyIngredients = async (
-  imageBase64: string,
+  imageBase64: string, // This is expected to be the full data URI: data:image/jpeg;base64,...
   language: Language
 ): Promise<DetectedIngredient[]> => {
   const langInstruction = language === 'zh' ? "in Simplified Chinese (zh-CN)" : "in English";
@@ -93,34 +67,41 @@ export const identifyIngredients = async (
     2. 'box_2d': [ymin, xmin, ymax, xmax] (0-1).
     
     Guidelines:
-    - ACCURACY IS CRITICAL. Use advanced vision capabilities to identify ingredients precisely.
-    - Group similar items: If there are multiple items of the same kind (e.g. a pile of fruits or a bag of buns), return ONE bounding box for the whole group.
-    - Reduce clutter: Avoid overlapping boxes for the same object. Consolidate into single clear boxes.
-    - Only identify food ingredients. Ignore background objects like shelves or fridge walls.
+    - ACCURACY IS CRITICAL. Identify ingredients precisely.
+    - Group similar items: If there are multiple items of the same kind return ONE bounding box for the whole group.
+    - Reduce clutter: Avoid overlapping boxes for the same object.
+    - Only identify food ingredients. Ignore background objects.
   `;
 
-  try {
-    // Upgraded to Pro for better vision accuracy as requested
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro", 
-      contents: {
-        parts: [
-          { inlineData: { mimeType: "image/jpeg", data: cleanBase64(imageBase64) } },
-          { text: prompt },
-        ],
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: ingredientsSchema,
-      },
-    });
+  const schemaDescription = `{
+    "ingredients": [
+      {
+        "name": "string (name of ingredient)",
+        "box_2d": [ymin, xmin, ymax, xmax] (numbers 0-1)
+      }
+    ]
+  }`;
 
-    const text = response.text;
-    if (!text) return [];
-    const result = JSON.parse(text);
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { 
+          type: "image_url", 
+          image_url: { 
+            url: imageBase64 // The custom API supports data URIs directly
+          } 
+        }
+      ]
+    }
+  ];
+
+  try {
+    const result = await callChatApi(messages, schemaDescription);
     return result.ingredients || [];
   } catch (error) {
-    console.error("Gemini Identify Ingredients Error:", error);
+    console.error("Identify Ingredients Error:", error);
     throw error;
   }
 };
@@ -138,52 +119,58 @@ export const generateRecipeFromImage = async (
 
   const ingredientsList = selectedIngredients.join(', ');
 
-  const prompt = isMichelin
-    ? `You are a world-renowned 3-star Michelin Chef.
-       The user wants to cook a dish using MAINLY these ingredients found in their fridge: [${ingredientsList}].
-       Analyze the provided image for context (quantity, quality) but focus on the selected ingredients.
-       Create a sophisticated, high-end recipe.
-       Use flowery, expensive-sounding culinary terms.
-       ${langInstruction}
-       Provide the output in JSON format.`
-    : `You are a chaotic 'Dark Cuisine' Chef (The Hell Kitchen Alchemist). 
-       The user wants to cook using these ingredients: [${ingredientsList}].
-       Analyze the image for context.
-       Create a bizarre, creative, perhaps slightly questionable but technically edible recipe.
-       Be dramatic, funny, and unconventional.
-       ${langInstruction}
-       Provide the output in JSON format.`;
+  const persona = isMichelin
+    ? `You are a world-renowned 3-star Michelin Chef. Use flowery, expensive-sounding culinary terms.`
+    : `You are a chaotic 'Dark Cuisine' Chef (The Hell Kitchen Alchemist). Be dramatic, funny, and unconventional.`;
+
+  const prompt = `
+    ${persona}
+    The user wants to cook a dish using MAINLY these ingredients found in their fridge: [${ingredientsList}].
+    Analyze the provided image for context (quantity, quality) but focus on the selected ingredients.
+    Create a recipe.
+    ${langInstruction}
+  `;
+
+  const schemaDescription = `{
+    "title": "string (creative name of the dish)",
+    "description": "string (short engaging description)",
+    "ingredientsDetected": ["string (ingredients used)"],
+    "steps": ["string (step by step instructions)"],
+    "cookingTime": "string",
+    "difficulty": "string",
+    "chefComment": "string (chef's specific comment)"
+  }`;
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { 
+          type: "image_url", 
+          image_url: { 
+            url: imageBase64
+          } 
+        }
+      ]
+    }
+  ];
 
   try {
-    // Keep Pro for high quality generation
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: {
-        parts: [
-          { inlineData: { mimeType: "image/jpeg", data: cleanBase64(imageBase64) } },
-          { text: prompt },
-        ],
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: recipeSchema,
-        temperature: 0.8,
-      },
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("No response text from Gemini.");
-
-    const recipe = JSON.parse(text) as Recipe;
+    const result = await callChatApi(messages, schemaDescription);
+    
     // Add client-side ID and timestamp
-    recipe.id = crypto.randomUUID();
-    recipe.timestamp = Date.now();
-    recipe.comments = [];
-    recipe.isFavorite = false;
+    const recipe = {
+      ...result,
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      comments: [],
+      isFavorite: false
+    } as Recipe;
     
     return recipe;
   } catch (error) {
-    console.error("Gemini Recipe Generation Error:", error);
+    console.error("Recipe Generation Error:", error);
     throw error;
   }
 };
@@ -205,29 +192,33 @@ export const searchPopularRecipes = async (
     For each recipe, provide detailed steps, cooking time, and difficulty.
     In the 'chefComment' field, provide a brief sentence about why this recipe is popular.
     ${langInstruction}
-    Provide the output in JSON format as a list of 4 recipes.
   `;
 
+  const schemaDescription = `{
+    "recipes": [
+      {
+        "title": "string",
+        "description": "string",
+        "ingredientsDetected": ["string"],
+        "steps": ["string"],
+        "cookingTime": "string",
+        "difficulty": "string",
+        "chefComment": "string"
+      }
+    ]
+  }`;
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt }
+      ]
+    }
+  ];
+
   try {
-    // Use Flash for speed in search/aggregation
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: {
-        parts: [
-          { text: prompt },
-        ],
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: recipeListSchema,
-        temperature: 0.4,
-      },
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("No response text from Gemini.");
-
-    const result = JSON.parse(text);
+    const result = await callChatApi(messages, schemaDescription);
     return (result.recipes || []).map((r: any) => ({
       ...r,
       id: crypto.randomUUID(),
@@ -236,7 +227,7 @@ export const searchPopularRecipes = async (
       isFavorite: false
     }));
   } catch (error) {
-    console.error("Gemini Recipe Search Error:", error);
+    console.error("Recipe Search Error:", error);
     throw error;
   }
 };
