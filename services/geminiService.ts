@@ -19,7 +19,7 @@ const client = new OpenAI({
 });
 
 // 模型名称
-const MODEL_NAME = "gemini-1.5-flash"; 
+const MODEL_NAME = "gemini-2.5-flash"; 
 
 // ------------------------------------------------------------------
 // 辅助函数
