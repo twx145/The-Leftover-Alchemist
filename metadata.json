@@ -1,0 +1,7 @@
+{
+  "name": "The Leftover Alchemist",
+  "description": "Turn your fridge leftovers into Michelin-star dishes (or chaotic dark cuisine) using Gemini Vision.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
