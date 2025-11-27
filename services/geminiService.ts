@@ -3,43 +3,56 @@ import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 
 // --- 配置部分 ---
 
-// 初始化 OpenAI 客户端 (用于对接 NewAPI)
-// 这里的 baseURL 必须填写 NewAPI 的地址
+// 1. 获取 Key (为了排查问题，如果 import.meta.env 获取不到，可以暂时先硬编码测试，测通后再换回环境变量)
+const API_KEY = import.meta.env.VITE_API_KEY; 
+// const API_KEY = "sk-0yYPQHh1LRIuuoLrkguZzHZaaD1Q39FW0s4ODnn7S8B7WniV"; // 如果上面不行，取消这行注释测试
+
+if (!API_KEY) {
+  console.error("❌ 严重错误: 没有找到 VITE_API_KEY，请检查 .env 文件并重启项目");
+} else {
+  console.log(`✅ API Key 已加载: ${API_KEY.slice(0, 5)}...${API_KEY.slice(-4)}`);
+}
+
+// 初始化 OpenAI 客户端
 const client = new OpenAI({
-  baseURL: "https://api.chataiapi.com/v1", 
-  apiKey: import.meta.env.VITE_API_KEY, // 请确保在 .env 文件中设置了新的 API Key
-  dangerouslyAllowBrowser: true // 如果这是纯前端应用，需要开启此项；如果是后端应用请去掉
+  baseURL: "https://api.chataiapi.com/v1", // 必须与 Python 代码一致
+  apiKey: API_KEY,
+  dangerouslyAllowBrowser: true // 允许在浏览器端运行
 });
 
-// 注意：目前 Gemini 最新版通常是 1.5-flash，2.5 尚未公开发布，这里帮你改为 1.5
+// 使用 Python 测试通过的模型
 const MODEL_NAME = "gemini-2.5-flash";
 
 // --- 辅助函数 ---
 
-// 确保 Base64 包含完整的前缀 (OpenAI 需要 data:image/... 格式)
-function formatDataUrl(base64: string): string {
-  // 如果已经包含前缀，直接返回
-  if (base64.startsWith("data:")) return base64;
+/**
+ * 格式化图片数据，确保符合 OpenAI 格式 (data:image/jpeg;base64,...)
+ */
+function formatDataUrl(input: string): string {
+  if (!input) return "";
   
-  // 尝试检测类型 (简单判断)
-  let mimeType = "image/jpeg";
-  if (base64.startsWith("/9j/")) mimeType = "image/jpeg";
-  else if (base64.startsWith("iVBORw0KGgo")) mimeType = "image/png";
-  else if (base64.startsWith("R0lGODdh")) mimeType = "image/gif";
-  else if (base64.startsWith("UklGR")) mimeType = "image/webp";
+  // 如果已经是 data: 开头，直接返回
+  if (input.startsWith("data:")) return input;
 
-  return `data:${mimeType};base64,${base64}`;
+  // 简单的 MIME 类型推断，默认 jpeg
+  let mimeType = "image/jpeg";
+  if (input.startsWith("iVBORw0KGgo")) mimeType = "image/png";
+  else if (input.startsWith("R0lGODdh")) mimeType = "image/gif";
+  else if (input.startsWith("UklGR")) mimeType = "image/webp";
+
+  return `data:${mimeType};base64,${input}`;
 }
 
-// 辅助：尝试解析 JSON，如果包含 Markdown 代码块则去除
+/**
+ * 安全解析 JSON
+ */
 function parseJSONResponse(content: string | null): any {
   if (!content) return {};
   try {
-    // 移除可能存在的 ```json ... ``` 包裹
     const cleanContent = content.replace(/```json\n?|\n?```/g, "").trim();
     return JSON.parse(cleanContent);
   } catch (e) {
-    console.error("JSON Parse Error:", e);
+    console.error("JSON Parse Error. Raw content:", content);
     return {};
   }
 }
@@ -53,6 +66,7 @@ export const identifyIngredients = async (
   const langInstruction = language === 'zh' ? "in Simplified Chinese (zh-CN)" : "in English";
   const imageUrl = formatDataUrl(imageBase64);
 
+  // 模仿 Python 的 Prompt 结构
   const prompt = `
     Identify the main edible ingredients in this image.
     Return a STRICT JSON object (do not output markdown).
@@ -73,25 +87,33 @@ export const identifyIngredients = async (
     - Only identify food ingredients.
   `;
 
+  console.log("🚀 发起 identifyIngredients 请求...");
+
   try {
     const response = await client.chat.completions.create({
       model: MODEL_NAME,
       messages: [
         {
-          role: "user",
+          role: "user", // 保持 User 角色，不使用 System
           content: [
             { type: "text", text: prompt },
             { type: "image_url", image_url: { url: imageUrl } }
           ]
         }
       ],
-      response_format: { type: "json_object" } // 强制 JSON 模式
+      response_format: { type: "json_object" }
     });
 
+    console.log("✅ API 响应成功");
     const result = parseJSONResponse(response.choices[0].message.content);
     return result.ingredients || [];
-  } catch (error) {
-    console.error("Identify Ingredients Error:", error);
+  } catch (error: any) {
+    console.error("❌ Identify Ingredients Error:", error);
+    // 打印更详细的错误信息用于调试
+    if (error.response) {
+      console.error("Status:", error.response.status);
+      console.error("Data:", error.response.data);
+    }
     throw error;
   }
 };
@@ -104,17 +126,20 @@ export const generateRecipeFromImage = async (
 ): Promise<Recipe> => {
   const isMichelin = mode === ChefMode.MICHELIN;
   const langInstruction = language === 'zh' 
-    ? "IMPORTANT: Output all text content (title, description, steps, etc.) in Simplified Chinese (zh-CN)." 
+    ? "IMPORTANT: Output all text content in Simplified Chinese (zh-CN)." 
     : "IMPORTANT: Output all text content in English.";
 
   const ingredientsList = selectedIngredients.join(', ');
   const imageUrl = formatDataUrl(imageBase64);
 
+  // 将 Persona (人设) 合并到 Prompt 中，避免使用 System Role 导致某些中转 API 报错
   const persona = isMichelin
     ? `You are a world-renowned 3-star Michelin Chef. Use flowery, expensive-sounding culinary terms.`
     : `You are a chaotic 'Dark Cuisine' Chef (The Hell Kitchen Alchemist). Be dramatic, funny, and unconventional.`;
 
   const prompt = `
+    ${persona}
+    
     The user wants to cook a dish using MAINLY these ingredients found in their fridge: [${ingredientsList}].
     Analyze the provided image for context (quantity, quality) but focus on the selected ingredients.
     
@@ -134,11 +159,12 @@ export const generateRecipeFromImage = async (
     ${langInstruction}
   `;
 
+  console.log("🚀 发起 generateRecipeFromImage 请求...");
+
   try {
     const response = await client.chat.completions.create({
       model: MODEL_NAME,
       messages: [
-        { role: "system", content: persona },
         {
           role: "user",
           content: [
@@ -180,7 +206,7 @@ export const searchPopularRecipes = async (
     Find 4 DISTINCT, POPULAR, and PRACTICAL recipes that can be made primarily with these ingredients: [${ingredientsList}].
     
     Return a STRICT JSON object with a "recipes" array.
-    Each recipe must follow this structure:
+    Structure per recipe:
     {
        "title": "...",
        "description": "...",
@@ -199,8 +225,8 @@ export const searchPopularRecipes = async (
     const response = await client.chat.completions.create({
       model: MODEL_NAME,
       messages: [
-        { role: "system", content: "You are a helpful recipe assistant." },
-        { role: "user", content: prompt }
+        // 纯文本请求通常可以用 System role，但为了保险起见，这里也合并成 User
+        { role: "user", content: `You are a helpful recipe assistant.\n\n${prompt}` }
       ],
       response_format: { type: "json_object" }
     });
