@@ -1,20 +1,24 @@
+
 import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 
-// Configuration for the custom API
-const API_KEY = process.env.API_KEY;
+// HARDCODED API KEY AS REQUESTED FOR TESTING
+const API_KEY = "sk-DbrO8aYhoUyHCutadV662KlOSA7agS9u9Icr4FeRFgXuWCfF";
 const BASE_URL = "https://www.chataiapi.com/v1";
-const MODEL_NAME = "gpt-4o"; // Using gpt-4o as it generally has best support for the OpenAI vision format
+// Using gpt-4o as it is the standard for high-quality vision analysis in OpenAI-compatible APIs
+const MODEL_NAME = "gpt-4o"; 
 
 // Helper function to call the custom API
 async function callChatApi(messages: any[], responseSchemaDescription: string) {
   if (!API_KEY) {
-    throw new Error("API_KEY environment variable is missing.");
+    throw new Error("API_KEY is missing.");
   }
 
   const systemMessage = {
     role: "system",
     content: `You are an AI assistant capable of analyzing images and generating recipes.
-    IMPORTANT: You must reply in valid JSON format only. Do not wrap the JSON in markdown code blocks.
+    IMPORTANT: You must reply in VALID JSON format only. 
+    Do not include any explanation, apologize, or use markdown code blocks (like \`\`\`json).
+    Just return the raw JSON string.
     
     The expected JSON structure is:
     ${responseSchemaDescription}`
@@ -23,38 +27,50 @@ async function callChatApi(messages: any[], responseSchemaDescription: string) {
   const payload = {
     model: MODEL_NAME,
     messages: [systemMessage, ...messages],
-    response_format: { type: "json_object" },
-    max_tokens: 4000
+    max_tokens: 4000,
+    temperature: 0.7
   };
 
-  const response = await fetch(`${BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${API_KEY}`
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("API Error Response:", errorText);
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices[0].message.content;
-
   try {
-    return JSON.parse(content);
-  } catch (e) {
-    console.error("Failed to parse JSON response:", content);
-    throw new Error("Invalid JSON received from API");
+    const response = await fetch(`${BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${API_KEY}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("API Error Response:", errorText);
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    let content = data.choices?.[0]?.message?.content;
+
+    if (!content) {
+      throw new Error("Empty response from API");
+    }
+
+    // Clean up markdown code blocks if the model includes them
+    content = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+
+    try {
+      return JSON.parse(content);
+    } catch (e) {
+      console.error("Failed to parse JSON response:", content);
+      throw new Error("Invalid JSON received from API");
+    }
+  } catch (error) {
+    console.error("Call Chat API Error:", error);
+    throw error;
   }
 }
 
 export const identifyIngredients = async (
-  imageBase64: string, // This is expected to be the full data URI: data:image/jpeg;base64,...
+  imageBase64: string, 
   language: Language
 ): Promise<DetectedIngredient[]> => {
   const langInstruction = language === 'zh' ? "in Simplified Chinese (zh-CN)" : "in English";
@@ -90,7 +106,7 @@ export const identifyIngredients = async (
         { 
           type: "image_url", 
           image_url: { 
-            url: imageBase64 // The custom API supports data URIs directly
+            url: imageBase64 
           } 
         }
       ]
