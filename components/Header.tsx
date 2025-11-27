@@ -18,7 +18,7 @@ export const Header: React.FC<HeaderProps> = ({ language, onToggleLanguage, curr
       {/* Background Glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-32 bg-amber-500/10 blur-[80px] rounded-full pointer-events-none"></div>
 
-      <div className="absolute top-6 right-6 z-50">
+      <div className="absolute top-6 right-6 z-50 flex gap-3">
         <button 
           onClick={onToggleLanguage}
           className="text-[10px] font-bold tracking-[0.2em] px-3 py-1.5 rounded border border-white/10 hover:border-amber-500/50 text-slate-400 hover:text-amber-400 transition-all uppercase bg-black/20 backdrop-blur-md"

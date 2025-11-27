@@ -60,7 +60,13 @@ export const translations = {
     tags: "Tags",
     addTagPlaceholder: "Add tag (e.g. Italian)...",
     all: "All",
-    rescan: "Rescan Image"
+    rescan: "Rescan Image",
+    settings: "Settings",
+    apiKeyRequired: "API Key Required",
+    apiKeyDesc: "Please enter your ChatAI API Key (or OpenAI compatible key) to start cooking.",
+    apiKeyPlaceholder: "sk-...",
+    saveKey: "Save API Key",
+    apiKeyInvalid: "Your API Key seems invalid or banned. Please enter a new one."
   },
   zh: {
     appTitle: "冰箱炼金术师",
@@ -120,6 +126,12 @@ export const translations = {
     tags: "标签",
     addTagPlaceholder: "添加标签 (如: 川菜)...",
     all: "全部",
-    rescan: "重新识别"
+    rescan: "重新识别",
+    settings: "设置",
+    apiKeyRequired: "需要配置 API Key",
+    apiKeyDesc: "请输入您的 ChatAI API Key (或 OpenAI 兼容 Key) 以开始使用。",
+    apiKeyPlaceholder: "sk-...",
+    saveKey: "保存 Key",
+    apiKeyInvalid: "您的 Key 似乎无效或已被封禁，请重新输入。"
   }
 };

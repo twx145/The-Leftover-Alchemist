@@ -89,7 +89,7 @@ export const App: React.FC = () => {
         status: 'selecting_ingredients',
         detectedIngredients: ingredients
       }));
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       setState(prev => ({
         ...prev,
@@ -138,7 +138,7 @@ export const App: React.FC = () => {
         recipes: [recipe],
         selectedRecipeIndex: 0
       }));
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       setState(prev => ({
         ...prev,
@@ -166,7 +166,7 @@ export const App: React.FC = () => {
             recipes: recipes,
             selectedRecipeIndex: -1 
         }));
-    } catch (err) {
+    } catch (err: any) {
         console.error(err);
         setState(prev => ({
             ...prev,

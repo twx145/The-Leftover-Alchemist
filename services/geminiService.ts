@@ -1,73 +1,38 @@
-
+import OpenAI from "openai";
 import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 
-// HARDCODED API KEY AS REQUESTED FOR TESTING
-const API_KEY = "sk-DbrO8aYhoUyHCutadV662KlOSA7agS9u9Icr4FeRFgXuWCfF";
-const BASE_URL = "https://www.chataiapi.com/v1";
-// Using gpt-4o as it is the standard for high-quality vision analysis in OpenAI-compatible APIs
-const MODEL_NAME = "gemini-2.5-pro"; 
+// ------------------------------------------------------------------
+// 配置 OpenAI 客户端 (用于连接 ChatAIAPI)
+// ------------------------------------------------------------------
+// 建议: 不要把 Key 硬编码在这里，依然使用 process.env
+const client = new OpenAI({
+  apiKey: process.env.API_KEY, // 这里的 Key 应该是 sk- 开头的新 Key
+  baseURL: "https://www.chataiapi.com/v1", // 中转商地址
+  dangerouslyAllowBrowser: true // 如果你在前端直接运行构建，需要开启此项；如果是Next.js API路由则不需要
+});
 
-// Helper function to call the custom API
-async function callChatApi(messages: any[], responseSchemaDescription: string) {
-  if (!API_KEY) {
-    throw new Error("API_KEY is missing.");
+// 注意：请确认中转商支持的模型名称。
+// 通常是 "gemini-1.5-flash" 或 "gemini-pro"。
+// 如果中转商确实支持 "gemini-2.5-flash" 则保留，否则请改为 "gemini-1.5-flash"
+const MODEL_NAME = "gemini-1.5-flash"; 
+
+// ------------------------------------------------------------------
+// 辅助函数
+// ------------------------------------------------------------------
+
+// OpenAI SDK 需要完整的 data url (例如: data:image/jpeg;base64,...)
+// 如果传入的已经是完整格式，直接返回；如果是纯 base64，尝试补全
+function ensureDataUrl(base64Str: string): string {
+  if (base64Str.startsWith('data:')) {
+    return base64Str;
   }
-
-  const systemMessage = {
-    role: "system",
-    content: `You are an AI assistant capable of analyzing images and generating recipes.
-    IMPORTANT: You must reply in VALID JSON format only. 
-    Do not include any explanation, apologize, or use markdown code blocks (like \`\`\`json).
-    Just return the raw JSON string.
-    
-    The expected JSON structure is:
-    ${responseSchemaDescription}`
-  };
-
-  const payload = {
-    model: MODEL_NAME,
-    messages: [systemMessage, ...messages],
-    max_tokens: 4000,
-    temperature: 0.7
-  };
-
-  try {
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("API Error Response:", errorText);
-      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    let content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error("Empty response from API");
-    }
-
-    // Clean up markdown code blocks if the model includes them
-    content = content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-
-    try {
-      return JSON.parse(content);
-    } catch (e) {
-      console.error("Failed to parse JSON response:", content);
-      throw new Error("Invalid JSON received from API");
-    }
-  } catch (error) {
-    console.error("Call Chat API Error:", error);
-    throw error;
-  }
+  // 默认假设为 jpeg，或者你可以复用之前的逻辑去猜测
+  return `data:image/jpeg;base64,${base64Str}`;
 }
+
+// ------------------------------------------------------------------
+// 核心功能
+// ------------------------------------------------------------------
 
 export const identifyIngredients = async (
   imageBase64: string, 
@@ -79,43 +44,41 @@ export const identifyIngredients = async (
     Identify the main edible ingredients in this image.
     Return a list of ingredients with their 2D bounding boxes.
     
+    GUIDELINES:
     1. 'name': Common name of the ingredient ${langInstruction}.
     2. 'box_2d': [ymin, xmin, ymax, xmax] (0-1).
-    
-    Guidelines:
-    - ACCURACY IS CRITICAL. Identify ingredients precisely.
-    - Group similar items: If there are multiple items of the same kind return ONE bounding box for the whole group.
-    - Reduce clutter: Avoid overlapping boxes for the same object.
-    - Only identify food ingredients. Ignore background objects.
+    3. ACCURACY IS CRITICAL.
+    4. Only identify food ingredients.
+    5. RETURN JSON ONLY.
   `;
 
-  const schemaDescription = `{
-    "ingredients": [
-      {
-        "name": "string (name of ingredient)",
-        "box_2d": [ymin, xmin, ymax, xmax] (numbers 0-1)
-      }
-    ]
-  }`;
-
-  const messages = [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: prompt },
-        { 
-          type: "image_url", 
-          image_url: { 
-            url: imageBase64 
-          } 
-        }
-      ]
-    }
-  ];
-
   try {
-    const result = await callChatApi(messages, schemaDescription);
-    return result.ingredients || [];
+    const response = await client.chat.completions.create({
+      model: MODEL_NAME,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: ensureDataUrl(imageBase64),
+                detail: "auto" // 这里的 detail 可以是 low, high, auto
+              }
+            }
+          ]
+        }
+      ],
+      // 强制 JSON 模式，大多数中转商对 Gemini 模型支持此参数
+      response_format: { type: "json_object" } 
+    });
+
+    const content = response.choices[0].message.content;
+    const result = JSON.parse(content || "{}");
+    
+    // 兼容可能返回的不同 JSON 结构，确保拿到数组
+    return result.ingredients || result.items || [];
   } catch (error) {
     console.error("Identify Ingredients Error:", error);
     throw error;
@@ -145,37 +108,43 @@ export const generateRecipeFromImage = async (
     Analyze the provided image for context (quantity, quality) but focus on the selected ingredients.
     Create a recipe.
     ${langInstruction}
+
+    Return a JSON object with this structure:
+    {
+      "title": "string",
+      "description": "string",
+      "ingredientsDetected": ["string"],
+      "steps": ["string"],
+      "cookingTime": "string",
+      "difficulty": "string",
+      "chefComment": "string",
+      "tags": ["string"]
+    }
   `;
 
-  const schemaDescription = `{
-    "title": "string (creative name of the dish)",
-    "description": "string (short engaging description)",
-    "ingredientsDetected": ["string (ingredients used)"],
-    "steps": ["string (step by step instructions)"],
-    "cookingTime": "string",
-    "difficulty": "string",
-    "chefComment": "string (chef's specific comment)"
-  }`;
-
-  const messages = [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: prompt },
-        { 
-          type: "image_url", 
-          image_url: { 
-            url: imageBase64
-          } 
-        }
-      ]
-    }
-  ];
-
   try {
-    const result = await callChatApi(messages, schemaDescription);
+    const response = await client.chat.completions.create({
+      model: MODEL_NAME,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: ensureDataUrl(imageBase64)
+              }
+            }
+          ]
+        }
+      ],
+      response_format: { type: "json_object" }
+    });
     
-    // Add client-side ID and timestamp
+    const content = response.choices[0].message.content;
+    const result = JSON.parse(content || "{}");
+    
     const recipe = {
       ...result,
       id: crypto.randomUUID(),
@@ -208,33 +177,36 @@ export const searchPopularRecipes = async (
     For each recipe, provide detailed steps, cooking time, and difficulty.
     In the 'chefComment' field, provide a brief sentence about why this recipe is popular.
     ${langInstruction}
-  `;
 
-  const schemaDescription = `{
-    "recipes": [
-      {
-        "title": "string",
-        "description": "string",
-        "ingredientsDetected": ["string"],
-        "steps": ["string"],
-        "cookingTime": "string",
-        "difficulty": "string",
-        "chefComment": "string"
-      }
-    ]
-  }`;
-
-  const messages = [
+    Return a JSON object with this structure:
     {
-      role: "user",
-      content: [
-        { type: "text", text: prompt }
+      "recipes": [
+        {
+           "title": "string",
+           "description": "string",
+           "ingredientsDetected": ["string"],
+           "steps": ["string"],
+           "cookingTime": "string",
+           "difficulty": "string",
+           "chefComment": "string",
+           "tags": ["string"]
+        }
       ]
     }
-  ];
+  `;
 
   try {
-    const result = await callChatApi(messages, schemaDescription);
+    const response = await client.chat.completions.create({
+      model: MODEL_NAME,
+      messages: [
+        { role: "user", content: prompt }
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    const content = response.choices[0].message.content;
+    const result = JSON.parse(content || "{}");
+    
     return (result.recipes || []).map((r: any) => ({
       ...r,
       id: crypto.randomUUID(),
