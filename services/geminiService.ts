@@ -5,7 +5,7 @@ import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 const API_KEY = "sk-DbrO8aYhoUyHCutadV662KlOSA7agS9u9Icr4FeRFgXuWCfF";
 const BASE_URL = "https://www.chataiapi.com/v1";
 // Using gpt-4o as it is the standard for high-quality vision analysis in OpenAI-compatible APIs
-const MODEL_NAME = "gpt-4o"; 
+const MODEL_NAME = "gemini-2.5-pro"; 
 
 // Helper function to call the custom API
 async function callChatApi(messages: any[], responseSchemaDescription: string) {
