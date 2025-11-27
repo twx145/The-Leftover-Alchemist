@@ -2,31 +2,33 @@ import OpenAI from "openai";
 import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 
 // ------------------------------------------------------------------
-// 配置 OpenAI 客户端 (用于连接 ChatAIAPI)
+// 配置 OpenAI 客户端
 // ------------------------------------------------------------------
-// 建议: 不要把 Key 硬编码在这里，依然使用 process.env
+
+// Vite 环境必须使用 import.meta.env.VITE_ 开头的变量
+const apiKey = import.meta.env.API_KEY || "";
+
+if (!apiKey) {
+  console.error("⚠️ 警告: 未检测到 API_KEY，API 调用将会失败。请检查 .env 文件。");
+}
+
 const client = new OpenAI({
-  apiKey: process.env.API_KEY, // 这里的 Key 应该是 sk- 开头的新 Key
+  apiKey: apiKey,
   baseURL: "https://www.chataiapi.com/v1", // 中转商地址
-  dangerouslyAllowBrowser: true // 如果你在前端直接运行构建，需要开启此项；如果是Next.js API路由则不需要
+  dangerouslyAllowBrowser: true // 允许在浏览器端运行
 });
 
-// 注意：请确认中转商支持的模型名称。
-// 通常是 "gemini-1.5-flash" 或 "gemini-pro"。
-// 如果中转商确实支持 "gemini-2.5-flash" 则保留，否则请改为 "gemini-1.5-flash"
+// 模型名称
 const MODEL_NAME = "gemini-1.5-flash"; 
 
 // ------------------------------------------------------------------
 // 辅助函数
 // ------------------------------------------------------------------
 
-// OpenAI SDK 需要完整的 data url (例如: data:image/jpeg;base64,...)
-// 如果传入的已经是完整格式，直接返回；如果是纯 base64，尝试补全
 function ensureDataUrl(base64Str: string): string {
   if (base64Str.startsWith('data:')) {
     return base64Str;
   }
-  // 默认假设为 jpeg，或者你可以复用之前的逻辑去猜测
   return `data:image/jpeg;base64,${base64Str}`;
 }
 
@@ -64,20 +66,19 @@ export const identifyIngredients = async (
               type: "image_url",
               image_url: {
                 url: ensureDataUrl(imageBase64),
-                detail: "auto" // 这里的 detail 可以是 low, high, auto
+                detail: "auto"
               }
             }
           ]
         }
       ],
-      // 强制 JSON 模式，大多数中转商对 Gemini 模型支持此参数
       response_format: { type: "json_object" } 
     });
 
     const content = response.choices[0].message.content;
     const result = JSON.parse(content || "{}");
     
-    // 兼容可能返回的不同 JSON 结构，确保拿到数组
+    // 兼容可能返回的字段差异
     return result.ingredients || result.items || [];
   } catch (error) {
     console.error("Identify Ingredients Error:", error);
