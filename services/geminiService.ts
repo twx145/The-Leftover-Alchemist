@@ -6,7 +6,7 @@ import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 // 初始化 OpenAI 客户端 (用于对接 NewAPI)
 // 这里的 baseURL 必须填写 NewAPI 的地址
 const client = new OpenAI({
-  baseURL: "https://api.newapi.pro/v1", 
+  baseURL: "https://api.chataiapi.com/v1", 
   apiKey: import.meta.env.VITE_API_KEY, // 请确保在 .env 文件中设置了新的 API Key
   dangerouslyAllowBrowser: true // 如果这是纯前端应用，需要开启此项；如果是后端应用请去掉
 });
