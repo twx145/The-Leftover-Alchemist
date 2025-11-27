@@ -70,7 +70,7 @@ const recipeListSchema: Schema = {
     recipes: {
       type: Type.ARRAY,
       items: recipeSchema,
-      description: "List of 4 distinct recipes.",
+      description: "List of 6 distinct recipes.",
     }
   },
   required: ["recipes"]
@@ -102,7 +102,7 @@ export const identifyIngredients = async (
   try {
     // Upgraded to Pro for better vision accuracy as requested
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", 
+      model: "gemini-2.5-pro", 
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: cleanBase64(imageBase64) } },
