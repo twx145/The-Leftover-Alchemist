@@ -6,7 +6,7 @@ import { ChefMode, Recipe, Language, DetectedIngredient } from "../types";
 // ------------------------------------------------------------------
 
 // Vite 环境必须使用 import.meta.env.VITE_ 开头的变量
-const apiKey = import.meta.env.VITE_API_KEY || "";
+const apiKey = "sk-CU2KO5ZBLJKkRhlV4o6rDGQzRQembG0U89gWfnHsIpYc3LK5";
 
 if (!apiKey) {
   console.error("⚠️ 警告: 未检测到 VITE_API_KEY，API 调用将会失败。请检查 .env 文件。");
