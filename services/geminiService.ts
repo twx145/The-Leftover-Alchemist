@@ -14,7 +14,7 @@ if (!apiKey) {
 
 const client = new OpenAI({
   apiKey: apiKey,
-  baseURL: "https://www.chataiapi.com/v1", // 中转商地址
+  baseURL: "https://www.api.chataiapi.com/v1", // 中转商地址
   dangerouslyAllowBrowser: true // 允许在浏览器端运行
 });
 
