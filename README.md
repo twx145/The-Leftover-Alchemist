@@ -95,10 +95,3 @@ The Leftover Alchemist lets you snap your open fridge or upload an image of ingr
 - **Code style:** TypeScript-first, clear types, small components, pure functions in services.  
 - **Env safety:** Never commit keys. Use `.env.local`; rely on Vercel project env in production.
 
----
-
-## License
-
-- **Status:** No explicit license is set in the repository at this time; consider adding MIT or Apache-2.0 to encourage collaboration.
-
-> Sources: 
